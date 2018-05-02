@@ -9,9 +9,6 @@ from absl import flags
 from pysc2.env import run_loop
 from pysc2.env import sc2_env
 
-from vsagent import VerySimpleAgent
-from vsagent import VS_SCREEN_SIZE_X, VS_SCREEN_SIZE_Y
-from ssagent import SlightlySmarterAgent
 from a3c_agent import A3CAgent
 from a3c_agent import A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, PARALLEL_THREADS, SAVE_PATH,\
     LOG_PATH, RENDER, TRAINING
@@ -98,18 +95,6 @@ def start_a3c_agent():
             t.join()
 
 
-def start_simple_agent():
-    """Starts a very simple agent."""
-    agent = VerySimpleAgent()
-    run_thread(agent, VS_SCREEN_SIZE_X, VS_SCREEN_SIZE_Y, VS_SCREEN_SIZE_X, VS_SCREEN_SIZE_Y, True)
-
-
-def start_qlearn_agent():
-    """Starts a slightly smarter agent."""
-    agent = SlightlySmarterAgent()
-    run_thread(agent, VS_SCREEN_SIZE_X, VS_SCREEN_SIZE_Y, VS_SCREEN_SIZE_X, VS_SCREEN_SIZE_Y, True)
-
-
 def main(argv):
     """Main function.
 
@@ -118,13 +103,8 @@ def main(argv):
     :param argv: empty
     :return:
     """
-    if flags.FLAGS.agent == 'a3c':
-        start_a3c_agent()
-    elif flags.FLAGS.agent == 'ssagent':
-        start_qlearn_agent()
-    elif flags.FLAGS.agent == 'vsagent':
-        start_simple_agent()
-
+    start_a3c_agent()
+    
 
 if __name__ == '__main__':
     print('Starting...')
