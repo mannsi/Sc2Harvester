@@ -118,6 +118,7 @@ class A3CAgent:
         self.epsilon = EPSILON
         self.exploration_rate = EXPLORATION_RATE
         self.discount_factor = DISCOUNT_FACTOR
+        # TODO MANNSI: Use action ids
         self.executable_actions = [0, 1, 2, 6, 44, 79, 91, 264, 269, 318, 319, 331, 332, 343, 344]
         self.replay_states = []
         self.replay_actions = []
@@ -128,6 +129,7 @@ class A3CAgent:
         # TODO MANNSI: FIGURE THIS MOTHER OUT
         with tf.variable_scope(name):
             if reuse:
+                # MANNSI: This is key. I think this means we are only keeping one set of weights between agents.
                 tf.get_variable_scope().reuse_variables()
 
             self.nn = NeuralNetwork()
@@ -248,7 +250,7 @@ class A3CAgent:
         self.steps += 1
 
         if A3CAgent.step_counter >= MAX_STEPS_TOTAL:
-            self.update(LEARNING_RATE)
+            self.update()
             # stopping the execution of the threads via an exception
             raise KeyboardInterrupt
 
@@ -321,18 +323,22 @@ class A3CAgent:
         learning_rate = LEARNING_RATE * (1 - 0.9 * A3CAgent.step_counter / MAX_STEPS_TOTAL)
 
         # if the last state in the buffer is a terminal state, set R=0
-        if self.replay_states[-1][-1]:
+        last_state_is_terminal = self.replay_states[-1][-1]
+        if last_state_is_terminal:
             R = 0
         else:
-            minimap, screen, non_spatial_features, _ = self.replay_states[-1]
-            feed_dict = {self.nn.minimap: minimap,
-                         self.nn.screen: screen,
-                         self.nn.non_spatial_features: non_spatial_features}
+            # MANNSI: This situation should never happens for resource collection minigame since last state should always be a terminal one.
+            # MANNSI: Below we estimate the value of the last state since we did not take an action in it to get a reward.
+            minimap_states, screen_states, non_spatial_feature_states, _ = self.replay_states[-1]
+            feed_dict = {self.nn.minimap: minimap_states,
+                         self.nn.screen: screen_states,
+                         self.nn.non_spatial_features: non_spatial_feature_states}
             R = self.tf_session.run(self.nn.value, feed_dict=feed_dict)[0]
 
         cumulated_rewards = np.zeros(shape=len(self.replay_states,), dtype=np.float32)
         cumulated_rewards[0] = R
 
+        # Initialize np arrays for values. These arrays are filled using replay buffer
         valid_spatial_action = np.zeros(shape=(len(self.replay_states,)), dtype=np.float32)
         spatial_action_selected = np.zeros(shape=(len(self.replay_states), A3C_SCREEN_SIZE_X * A3C_SCREEN_SIZE_Y), dtype=np.float32)
         valid_non_spatial_action = np.zeros([len(self.replay_states), len(self.executable_actions,)], dtype=np.float32)
@@ -341,16 +347,17 @@ class A3CAgent:
         self.replay_states.reverse()
         self.replay_actions.reverse()
 
-        minimap = []
-        screen = []
-        non_spatial_features = []
+        minimap_states = []
+        screen_states = []
+        non_spatial_feature_states = []
 
         for i in range(len(self.replay_states)):
             mm, scr, info, _ = self.replay_states[i]
-            minimap.append(mm)
-            screen.append(scr)
-            non_spatial_features.append(info)
+            minimap_states.append(mm)
+            screen_states.append(scr)
+            non_spatial_feature_states.append(info)  # These are the info vectors
 
+            # TODO MANNSI: Change this to use the reward from the minigame
             # reward is minerals + gas * 10 + collection_rate_minerals * 10 + collection_rate_gas * 100
             reward = info.flatten()[8] + info.flatten()[9] * 10 + info.flatten()[10] * 10 + info.flatten()[11] * 100
 
@@ -375,15 +382,17 @@ class A3CAgent:
 
         final_reward = cumulated_rewards[-1]
 
-        minimap = np.array(minimap).squeeze()
-        screen = np.array(screen).squeeze()
-        non_spatial_features = np.array(non_spatial_features).squeeze()
+        # MANNSI: Magically reshapes these lists of np arrays into proper np arrays. Also removes one extra dim in the way
+        minimap_states = np.array(minimap_states).squeeze()
+        screen_states = np.array(screen_states).squeeze()
+        non_spatial_feature_states = np.array(non_spatial_feature_states).squeeze()
         non_spatial_action_selected = np.array(non_spatial_action_selected)
 
         # split the input into batches, to not consume all the GPU memory
-        minimap = np.array_split(minimap, NUM_BATCHES)
-        screen = np.array_split(screen, NUM_BATCHES)
-        non_spatial_features = np.array_split(non_spatial_features, NUM_BATCHES)
+        # MANNSI: These stop being proper np arrays and become lists
+        minimap_states = np.array_split(minimap_states, NUM_BATCHES)
+        screen_states = np.array_split(screen_states, NUM_BATCHES)
+        non_spatial_feature_states = np.array_split(non_spatial_feature_states, NUM_BATCHES)
         cumulated_rewards = np.array_split(cumulated_rewards, NUM_BATCHES)
         valid_spatial_action = np.array_split(valid_spatial_action, NUM_BATCHES)
         spatial_action_selected = np.array_split(spatial_action_selected, NUM_BATCHES)
@@ -394,10 +403,10 @@ class A3CAgent:
 
         losses = np.array([], dtype=np.float32).reshape(0,2)
 
-        for i in range(len(minimap)):
-            feed_dict = {self.nn.minimap: minimap[i],
-                         self.nn.screen: screen[i],
-                         self.nn.non_spatial_features: non_spatial_features[i],
+        for i in range(len(minimap_states)):
+            feed_dict = {self.nn.minimap: minimap_states[i],
+                         self.nn.screen: screen_states[i],
+                         self.nn.non_spatial_features: non_spatial_feature_states[i],
                          self.R: cumulated_rewards[i],
                          self.valid_spatial_action: valid_spatial_action[i],
                          self.spatial_action_selected: spatial_action_selected[i],
@@ -410,6 +419,7 @@ class A3CAgent:
             losses = np.vstack((losses, (policy_loss, value_loss)))
 
         # reverse it again, so it is in the original order, both lists are used later on
+        # MANNSI 
         self.replay_states.reverse()
         self.replay_actions.reverse()
 

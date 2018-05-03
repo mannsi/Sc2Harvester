@@ -63,34 +63,42 @@ def start_a3c_agent():
         parallel = PARALLEL_THREADS
         show_render = RENDER
 
+
+    # MANNSI sync version
+
     with tf.Session() as session:
-        agents = []
-        for i in range(parallel):
-            agent = A3CAgent(session, i, summary_writer)
-            restored_session = False
-            if os.path.exists(SAVE_PATH):
-                restored_session = True
+        agent = A3CAgent(session, 0, summary_writer)
+        agent.initialize()
+        run_thread(agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, False)
 
-                if agent.load_checkpoint():
-                    agents.append(agent)
-            else:
-                agents.append(agent)
-
-        if not restored_session:
-            agent.initialize()
-
-        threads = []
-        show = show_render
-        for agent in agents:
-            thread_args = (agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, show)
-            t = threading.Thread(target=run_thread, args=thread_args)
-            threads.append(t)
-            t.start()
-            time.sleep(5)
-            show = False
-
-        for t in threads:
-            t.join()
+    # with tf.Session() as session:
+        # agents = []
+        # for i in range(parallel):
+        #     agent = A3CAgent(session, i, summary_writer)
+        #     restored_session = False
+        #     if os.path.exists(SAVE_PATH):
+        #         restored_session = True
+        #
+        #         if agent.load_checkpoint():
+        #             agents.append(agent)
+        #     else:
+        #         agents.append(agent)
+        #
+        # if not restored_session:
+        #     agent.initialize()
+        #
+        # threads = []
+        # show = show_render
+        # for agent in agents:
+        #     thread_args = (agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, show)
+        #     t = threading.Thread(target=run_thread, args=thread_args)
+        #     threads.append(t)
+        #     t.start()
+        #     time.sleep(5)
+        #     show = False
+        #
+        # for t in threads:
+        #     t.join()
 
 
 def main(argv):
