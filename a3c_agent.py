@@ -125,6 +125,7 @@ class A3CAgent:
         self.summary = []
         self.summary_writer = summary_writer
 
+        # TODO MANNSI: FIGURE THIS MOTHER OUT
         with tf.variable_scope(name):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
@@ -177,6 +178,8 @@ class A3CAgent:
 
     def setup(self, obs_spec, action_spec):
         """Setup method, called by the environment when starting the agent."""
+
+        # MANNSI: These are not used.
         self.obs_spec = obs_spec
         self.action_spec = action_spec
 
@@ -227,6 +230,7 @@ class A3CAgent:
         agent instance. If the session restored from what's saved to hard disk, it must not get called, otherwise it
         will overwrite the restored values.
         """
+        # TODO MANNSI: this makes no sense. It's called from main in an illegal way and somehow magically works for all agents. How is this done originally?
         self.tf_session.run(tf.global_variables_initializer())
 
     def step(self, obs):

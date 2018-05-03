@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 import os
 import threading
 import time
@@ -104,7 +102,7 @@ def main(argv):
     :return:
     """
     start_a3c_agent()
-    
+
 
 if __name__ == '__main__':
     print('Starting...')
