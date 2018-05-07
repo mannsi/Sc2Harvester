@@ -134,26 +134,32 @@ class A3CAgent:
 
             self.nn = NeuralNetwork()
 
-            self.valid_spatial_action = tf.placeholder(tf.float32, [None, ], name='valid_spatial_action')
-            self.valid_non_spatial_action = tf.placeholder(tf.float32, [None, NUM_ACTIONS], name='valid_non_spatial_action')
+            self.has_spatial_action = tf.placeholder(tf.float32, [None, ], name='has_spatial_action')
+            self.valid_non_spatial_actions = tf.placeholder(tf.float32, [None, NUM_ACTIONS], name='valid_non_spatial_actions')
             self.spatial_action_selected = tf.placeholder(tf.float32, [None, A3C_SCREEN_SIZE_X * A3C_SCREEN_SIZE_Y], name='spatial_action_selected')
             self.non_spatial_action_selected = tf.placeholder(tf.float32, [None, NUM_ACTIONS], name='non_spatial_action_selected')
             self.R = tf.placeholder(tf.float32, [None], name='R')
 
-            spatial_action_prob = tf.reduce_sum(tf.multiply(self.nn.spatial_action, self.spatial_action_selected)) # axis=1?
-            spatial_action_log_prob = tf.log(tf.clip_by_value(spatial_action_prob, 1e-10, 1))
+            # MANNSI: reduce_sum is summing over each tensor instance of the batch in the other code
+            # but here it's summing over the entire batch. Think that is a mistake.
 
-            non_spatial_action_prob = tf.reduce_sum(tf.multiply(self.nn.non_spatial_action, self.non_spatial_action_selected))
-            valid_non_spatial_action_prob = tf.reduce_sum(tf.multiply(self.nn.non_spatial_action, self.valid_non_spatial_action))
-            valid_non_spatial_action_prob = tf.clip_by_value(valid_non_spatial_action_prob, 1e-10, 1)
-            non_spatial_action_prob = tf.div(non_spatial_action_prob, valid_non_spatial_action_prob)
+            # MANNSI TODO: How do I debug and confirm the above assumption???
+            spatial_action_prob = tf.reduce_sum(tf.multiply(self.nn.spatial_action, self.spatial_action_selected), axis=1) # axis=1?
+            spatial_action_log_prob = tf.log(tf.clip_by_value(spatial_action_prob, 1e-10, 1))  # MANNSI: Not possible to renormalize here because we don't know which spatial actions are legal.
+
+            non_spatial_action_prob = tf.reduce_sum(tf.multiply(self.nn.non_spatial_action, self.non_spatial_action_selected), axis=1)
+            valid_non_spatial_action_prob = tf.reduce_sum(tf.multiply(self.nn.non_spatial_action, self.valid_non_spatial_actions), axis=1)  # MANNSI: Note this returns a single value
+            valid_non_spatial_action_prob = tf.clip_by_value(valid_non_spatial_action_prob, 1e-10, 1)  # MANNSI: Note that this returns a single value
+            non_spatial_action_prob = tf.div(non_spatial_action_prob, valid_non_spatial_action_prob)  # MANNSI: Div here is done to renormalize based on legal non_spatial actions.
             non_spatial_action_log_prob = tf.log(tf.clip_by_value(non_spatial_action_prob, 1e-10, 1))
 
             self.summary.append(tf.summary.histogram('spatial_action_prob', spatial_action_prob))
             self.summary.append(tf.summary.histogram('non_spatial_action_prob', non_spatial_action_prob))
 
-            action_log_prob = tf.add(tf.multiply(self.valid_spatial_action, spatial_action_log_prob), non_spatial_action_log_prob)
+            action_log_prob = tf.add(tf.multiply(self.has_spatial_action, spatial_action_log_prob), non_spatial_action_log_prob)
             advantage = tf.stop_gradient(tf.subtract(self.R, self.nn.value))
+
+            # MANNSI: These are single values averaged over all the tensor values
             self.policy_loss = -tf.reduce_mean(tf.multiply(action_log_prob, advantage))
             self.value_loss = -tf.reduce_mean(tf.multiply(self.nn.value, advantage))
 
@@ -225,17 +231,11 @@ class A3CAgent:
         else:
             self.episode_start = time.time()
 
-    def initialize(self):
-        """Initialises a TensorFlow session.
-
-        This method gets only called once for one agent instance, but since the variables are shared it applies for all
-        agent instance. If the session restored from what's saved to hard disk, it must not get called, otherwise it
-        will overwrite the restored values.
-        """
-        # TODO MANNSI: this makes no sense. It's called from main in an illegal way and somehow magically works for all agents. How is this done originally?
-        self.tf_session.run(tf.global_variables_initializer())
-
     def step(self, obs):
+        # MANNSI: Convert obs to state, let NN create non_spatial_action, spatial_action_coordinates and value. Do random stuff also.
+
+        # MANNSI TODO: Does the spatial action not have to be a legal place? F.x. when creating a Vesepene Geyser. How does the other guy do it?
+
         """One step of an agent instance.
 
         This method selects which action to exectue and where. It does so by feeding the current state into the neural
@@ -339,7 +339,7 @@ class A3CAgent:
         cumulated_rewards[0] = R
 
         # Initialize np arrays for values. These arrays are filled using replay buffer
-        valid_spatial_action = np.zeros(shape=(len(self.replay_states,)), dtype=np.float32)
+        has_spatial_action = np.zeros(shape=(len(self.replay_states,)), dtype=np.float32)
         spatial_action_selected = np.zeros(shape=(len(self.replay_states), A3C_SCREEN_SIZE_X * A3C_SCREEN_SIZE_Y), dtype=np.float32)
         valid_non_spatial_action = np.zeros([len(self.replay_states), len(self.executable_actions,)], dtype=np.float32)
         non_spatial_action_selected = np.zeros([len(self.replay_states), len(self.executable_actions)], dtype=np.float32)
@@ -376,7 +376,7 @@ class A3CAgent:
             args = actions.FUNCTIONS[action_id].args
             for arg in args:
                 if arg.name in ('screen', 'minimap'):
-                    valid_spatial_action[i] = 1
+                    has_spatial_action[i] = 1
                     index = action_target[1] * A3C_SCREEN_SIZE_Y + action_target[0]
                     spatial_action_selected[i, index] = 1
 
@@ -394,7 +394,7 @@ class A3CAgent:
         screen_states = np.array_split(screen_states, NUM_BATCHES)
         non_spatial_feature_states = np.array_split(non_spatial_feature_states, NUM_BATCHES)
         cumulated_rewards = np.array_split(cumulated_rewards, NUM_BATCHES)
-        valid_spatial_action = np.array_split(valid_spatial_action, NUM_BATCHES)
+        has_spatial_action = np.array_split(has_spatial_action, NUM_BATCHES)
         spatial_action_selected = np.array_split(spatial_action_selected, NUM_BATCHES)
         valid_non_spatial_action = np.array_split(valid_non_spatial_action, NUM_BATCHES)
         non_spatial_action_selected = np.array_split(non_spatial_action_selected, NUM_BATCHES)
@@ -408,9 +408,9 @@ class A3CAgent:
                          self.nn.screen: screen_states[i],
                          self.nn.non_spatial_features: non_spatial_feature_states[i],
                          self.R: cumulated_rewards[i],
-                         self.valid_spatial_action: valid_spatial_action[i],
+                         self.has_spatial_action: has_spatial_action[i],
                          self.spatial_action_selected: spatial_action_selected[i],
-                         self.valid_non_spatial_action: valid_non_spatial_action[i],
+                         self.valid_non_spatial_actions: valid_non_spatial_action[i],
                          self.non_spatial_action_selected: non_spatial_action_selected[i],
                          self.learning_rate: learning_rate}
             _, summary, policy_loss, value_loss = self.tf_session.run([self.train, self.summary_op, self.policy_loss, self.value_loss], feed_dict=feed_dict, options=run_options)
@@ -419,7 +419,7 @@ class A3CAgent:
             losses = np.vstack((losses, (policy_loss, value_loss)))
 
         # reverse it again, so it is in the original order, both lists are used later on
-        # MANNSI 
+        # MANNSI
         self.replay_states.reverse()
         self.replay_actions.reverse()
 
