@@ -383,10 +383,9 @@ class A3CAgent:
         final_reward = cumulated_rewards[-1]
 
         # MANNSI: Magically reshapes these lists of np arrays into proper np arrays. Also removes one extra dim in the way
-        minimap_states = np.array(minimap_states).squeeze()
-        screen_states = np.array(screen_states).squeeze()
-        non_spatial_feature_states = np.array(non_spatial_feature_states).squeeze()
-        non_spatial_action_selected = np.array(non_spatial_action_selected)
+        minimap_states = np.array(minimap_states).squeeze(axis=1)
+        screen_states = np.array(screen_states).squeeze(axis=1)
+        non_spatial_feature_states = np.array(non_spatial_feature_states).squeeze(axis=1)
 
         # split the input into batches, to not consume all the GPU memory
         # MANNSI: These stop being proper np arrays and become lists
