@@ -54,23 +54,28 @@ class NeuralNetwork:
     """
     def __init__(self):
         """Builds the neural network."""
-        assert A3C_MINIMAP_SIZE_X == A3C_SCREEN_SIZE_X, 'resolution of minimap and screen have to be the same (X-axis)'
-        assert A3C_MINIMAP_SIZE_Y == A3C_SCREEN_SIZE_Y, 'resolution of minimap and screen have to be the same (Y-axis)'
-
-        self.minimap = tf.placeholder(shape=(None, MINIMAP_FEATURES, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y), dtype=np.float32, name='minimap')
         self.screen = tf.placeholder(shape=(None, SCREEN_FEATURES, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y), dtype=np.float32, name='screen')
-        self.non_spatial_features =tf.placeholder(shape=(None, NON_SPATIAL_FEATURES), dtype=np.float32, name='non_spatial_features')
+        self.non_spatial_features = tf.placeholder(shape=(None, NON_SPATIAL_FEATURES), dtype=np.float32, name='non_spatial_features')
 
-        minimap_conv1 = layers.conv2d(tf.transpose(self.minimap, [0, 2, 3, 1]), num_outputs=16, kernel_size=5, stride=1,scope='minimap_conv1')
-        minimap_conv2 = layers.conv2d(minimap_conv1, num_outputs=32, kernel_size=3, stride=1, scope='minimap_conv2')
+        final_conv_layers = []
+        if MINIMAP_FEATURES > 0:
+            self.minimap = tf.placeholder(shape=(None, MINIMAP_FEATURES, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y), dtype=np.float32, name='minimap')
+            minimap_conv1 = layers.conv2d(tf.transpose(self.minimap, [0, 2, 3, 1]), num_outputs=16, kernel_size=5, stride=1,scope='minimap_conv1')
+            minimap_conv2 = layers.conv2d(minimap_conv1, num_outputs=32, kernel_size=3, stride=1, scope='minimap_conv2')
+            final_conv_layers.append(minimap_conv2)
 
         screen_conv1 = layers.conv2d(tf.transpose(self.screen, [0, 2, 3, 1]), num_outputs=16, kernel_size=5, stride=1,scope='screen_conv1')
         screen_conv2 = layers.conv2d(screen_conv1, num_outputs=32, kernel_size=3, stride=1, scope='screen_conv2')
+        final_conv_layers.append(screen_conv2)
 
         non_spatial_features = layers.fully_connected(layers.flatten(self.non_spatial_features), num_outputs=256, activation_fn=tf.tanh, scope='non_spatial_features')
-        features_convoluted = tf.concat([minimap_conv2, screen_conv2], axis=3)
+
+        features_convoluted = tf.concat(final_conv_layers, axis=3)
         spatial_action = layers.conv2d(features_convoluted, num_outputs=1, kernel_size=1, stride=1, activation_fn=None, scope='spatial_action')
-        full_features = tf.concat([layers.flatten(minimap_conv2), layers.flatten(screen_conv2), non_spatial_features], axis=1)
+
+        flattened_final_conv_layers = [layers.flatten(conv_layer) for conv_layer in final_conv_layers]
+
+        full_features = tf.concat(flattened_final_conv_layers + [non_spatial_features], axis=1)
         full_features = layers.fully_connected(full_features, num_outputs=256, activation_fn=tf.nn.relu, scope='full_features')
 
         self.spatial_action = tf.nn.softmax(layers.flatten(spatial_action))
