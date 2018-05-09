@@ -9,7 +9,7 @@ from pysc2.env import sc2_env
 
 from a3c_agent import A3CAgent
 from a3c_agent import A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, PARALLEL_THREADS, SAVE_PATH,\
-    LOG_PATH, RENDER, TRAINING
+    LOG_PATH, TRAINING
 
 
 flags.DEFINE_string("agent", "a3c", "Which agent to run.")
@@ -58,10 +58,8 @@ def start_a3c_agent():
 
     if not TRAINING:
         parallel = 1
-        show_render = True
     else:
         parallel = PARALLEL_THREADS
-        show_render = RENDER
 
 
     # MANNSI sync version
