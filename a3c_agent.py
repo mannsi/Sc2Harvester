@@ -146,8 +146,8 @@ class A3CAgent:
         ]
 
         self.screen_features_indexes = [
-            features.SCREEN_FEATURES.player_relative.index,
-            features.SCREEN_FEATURES.unit_type.index,
+            # features.SCREEN_FEATURES.player_relative.index,
+            features.SCREEN_FEATURES.unit_type.index,  # This has different values for everything in the minigame
         ]
 
         self.player_feature_indexes = [
@@ -458,12 +458,9 @@ class A3CAgent:
         :param observation: all current observations from the environment
         :return: a dictionary that can be fed into TensorFlow
         """
-        feed_dict = {}
-        # if len(self.minimap_feature_indexes) > 0:
         minimap = np.array(observation['minimap'], dtype=np.float32)
         minimap = minimap[self.minimap_feature_indexes, :, :]
         minimap = np.expand_dims(minimap, axis=0)  # MANNSI: Adds an extra first dimension. NN expects inputs like that
-            # feed_dict[self.nn.minimap] = minimap
         screen = np.array(observation['screen'], dtype=np.float32)
         screen = screen[self.screen_features_indexes, :, :]
         screen = np.expand_dims(screen, axis=0)

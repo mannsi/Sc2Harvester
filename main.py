@@ -67,7 +67,7 @@ def start_a3c_agent():
     with tf.Session() as session:
         agent = A3CAgent(session, 0, summary_writer)
         session.run(tf.global_variables_initializer())  # This used to be in the agent initialize method.
-        run_thread(agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, False)
+        run_thread(agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, True)
 
     # with tf.Session() as session:
         # agents = []
