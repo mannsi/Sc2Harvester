@@ -63,40 +63,32 @@ def start_a3c_agent():
 
 
     # MANNSI sync version
+    # with tf.Session() as session:
+    #    agent = A3CAgent(session, 0, summary_writer)
+    #    session.run(tf.global_variables_initializer())  # This used to be in the agent initialize method.
+    #    run_thread(agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, False)
+    # return
 
     with tf.Session() as session:
-        agent = A3CAgent(session, 0, summary_writer)
-        session.run(tf.global_variables_initializer())  # This used to be in the agent initialize method.
-        run_thread(agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, True)
+        agents = []
+        for i in range(parallel):
+            agent = A3CAgent(session, i, summary_writer)
+            if os.path.exists(SAVE_PATH):
+                if agent.load_checkpoint():
+                    agents.append(agent)
+            else:
+                agents.append(agent)
 
-    # with tf.Session() as session:
-        # agents = []
-        # for i in range(parallel):
-        #     agent = A3CAgent(session, i, summary_writer)
-        #     restored_session = False
-        #     if os.path.exists(SAVE_PATH):
-        #         restored_session = True
-        #
-        #         if agent.load_checkpoint():
-        #             agents.append(agent)
-        #     else:
-        #         agents.append(agent)
-        #
-        # if not restored_session:
-        #     agent.initialize()
-        #
-        # threads = []
-        # show = show_render
-        # for agent in agents:
-        #     thread_args = (agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, show)
-        #     t = threading.Thread(target=run_thread, args=thread_args)
-        #     threads.append(t)
-        #     t.start()
-        #     time.sleep(5)
-        #     show = False
-        #
-        # for t in threads:
-        #     t.join()
+        session.run(tf.global_variables_initializer())  # This used to be in the agent initialize method.
+        threads = []
+        for agent in agents:
+            thread_args = (agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, False)
+            t = threading.Thread(target=run_thread, args=thread_args)
+            threads.append(t)
+            t.start()
+            time.sleep(5)
+        for t in threads:
+            t.join()
 
 
 def main(argv):

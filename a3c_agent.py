@@ -29,12 +29,13 @@ EPSILON = 0.05
 
 NUM_BATCHES = 20
 PARALLEL_THREADS = 16
-MAX_STEPS_TOTAL = 1 * 10**6
+MAX_STEPS_TOTAL = 10 * 10**6
+# MAX_STEPS_TOTAL = 100000
 CHECKPOINT = 500
 SAVE_PATH = './saved_checkpoints/'
 LOG_PATH = './logs/'
 PLOT_PATH = './plots/'
-DETAILED_LOGS = 10 # detailed logs are kept for top 10 episodes and last 10 episodes
+DETAILED_LOGS = 10  # detailed logs are kept for top 10 episodes and last 10 episodes
 SHOW_PROGRESS = True
 
 
@@ -92,11 +93,11 @@ class A3CAgent:
 
     Based on https://github.com/xhujoy/pysc2-agents
     """
-    step_counter = 0
-    episode_counter = 0
     action_logs = {}
-    lock_step = threading.Lock()
-    lock_episode = threading.Lock()
+
+    STEP_COUNTER = 0
+    EPISODE_COUNTER = 0
+    LOCK = threading.Lock()
 
     def __init__(self, session, agent_id, summary_writer, name='A3CAgent'):
         """Initialises the agent.
@@ -152,10 +153,10 @@ class A3CAgent:
 
         self.player_feature_indexes = [
             constants.Player_minerals,
-            constants.Player_vespene,
+            # constants.Player_vespene,
             constants.Player_food_used,
             constants.Player_food_cap,
-            constants.Player_food_workers,
+            # constants.Player_food_workers,
             constants.Player_idle_worker_count,
         ]
 
@@ -244,10 +245,10 @@ class A3CAgent:
         if len(self.replay_states) > 0:
             self.episodes += 1
             self.steps = 0
-            with A3CAgent.lock_episode:
-                A3CAgent.episode_counter += 1
-                global_episode = A3CAgent.episode_counter
-                global_steps = A3CAgent.step_counter
+            with A3CAgent.LOCK:
+                A3CAgent.EPISODE_COUNTER += 1
+                global_episode = A3CAgent.EPISODE_COUNTER
+                global_steps = A3CAgent.STEP_COUNTER
 
             reward, policy_loss, value_loss = self.update()
 
@@ -280,7 +281,7 @@ class A3CAgent:
         """
         self.steps += 1
 
-        if A3CAgent.step_counter >= MAX_STEPS_TOTAL:
+        if A3CAgent.STEP_COUNTER >= MAX_STEPS_TOTAL:
             self.update()
             # stopping the execution of the threads via an exception
             raise KeyboardInterrupt
@@ -305,7 +306,7 @@ class A3CAgent:
 
         if TRAINING:
             # exploration is done via a combination of epsilon greedy and and adaptive exploration rate
-            explore = (A3CAgent.step_counter + ((1 - self.exploration_rate) * MAX_STEPS_TOTAL)) / MAX_STEPS_TOTAL
+            explore = (A3CAgent.STEP_COUNTER + ((1 - self.exploration_rate) * MAX_STEPS_TOTAL)) / MAX_STEPS_TOTAL
 
             if np.random.rand() > explore or np.random.rand() < self.epsilon:
                 valid_actions = np.array(list(valid_actions), dtype=np.int32)
@@ -331,8 +332,8 @@ class A3CAgent:
             else:
                 arguments.append([0]) # only executing direct actions, no queuing
 
-        with A3CAgent.lock_step:
-            A3CAgent.step_counter += 1
+        with A3CAgent.LOCK:
+            A3CAgent.STEP_COUNTER += 1
 
         return actions.FunctionCall(action_id, arguments)
 
@@ -350,7 +351,9 @@ class A3CAgent:
 
         :return: total reward of that episode, loss of actor, loss of critic
         """
-        learning_rate = LEARNING_RATE * (1 - 0.9 * A3CAgent.step_counter / MAX_STEPS_TOTAL)
+        with A3CAgent.LOCK:
+            global_step_counter = A3CAgent.STEP_COUNTER
+            learning_rate = LEARNING_RATE * (1 - 0.9 * A3CAgent.STEP_COUNTER / MAX_STEPS_TOTAL)
 
         last_state_is_terminal = self.replay_states[-1][-1]
         if last_state_is_terminal:
@@ -389,7 +392,7 @@ class A3CAgent:
             if i > 0:
                 cumulated_rewards[i] = reward + self.discount_factor * cumulated_rewards[i-1]
 
-            action_id, action_target, valid_actions, _ , _ = self.replay_actions[i]
+            action_id, action_target, valid_actions = self.replay_actions[i][:3]
             valid_actions_indices = [0] * len(self.executable_actions_ids)
             for j in valid_actions:
                 valid_actions_indices[self.executable_actions_ids.index(j)] = 1
@@ -412,6 +415,18 @@ class A3CAgent:
         screen_states = np.array(screen_states).squeeze(axis=1)
         non_spatial_feature_states = np.array(non_spatial_feature_states).squeeze(axis=1)
 
+        # Shuffle all inputs before splitting them into batches
+        # Shuffle the arrays
+        p = np.random.permutation(len(minimap_states))
+        minimap_states = minimap_states[p]
+        screen_states = screen_states[p]
+        non_spatial_feature_states = non_spatial_feature_states[p]
+        cumulated_rewards = cumulated_rewards[p]
+        has_spatial_action = has_spatial_action[p]
+        spatial_action_selected = spatial_action_selected[p]
+        valid_non_spatial_action = valid_non_spatial_action[p]
+        non_spatial_action_selected = non_spatial_action_selected[p]
+
         # split the input into batches, to not consume all the GPU memory
         # MANNSI: These stop being proper np arrays and become lists
         minimap_states = np.array_split(minimap_states, NUM_BATCHES)
@@ -425,7 +440,7 @@ class A3CAgent:
 
         run_options = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
-        losses = np.array([], dtype=np.float32).reshape(0,2)
+        losses = np.array([], dtype=np.float32).reshape(0, 2)
 
         for i in range(NUM_BATCHES):
             feed_dict = {self.nn.minimap: minimap_states[i],
@@ -438,7 +453,7 @@ class A3CAgent:
                          self.non_spatial_action_selected: non_spatial_action_selected[i],
                          self.learning_rate: learning_rate}
             _, summary, policy_loss, value_loss = self.tf_session.run([self.train, self.summary_op, self.policy_loss, self.value_loss], feed_dict=feed_dict, options=run_options)
-            self.summary_writer.add_summary(summary, A3CAgent.step_counter)
+            self.summary_writer.add_summary(summary, global_step_counter)
 
             losses = np.vstack((losses, (policy_loss, value_loss)))
 
@@ -471,9 +486,6 @@ class A3CAgent:
 
         non_spatial_features = np.append(non_spatial_features, [1 if i in observation['available_actions'] else 0 for i in self.executable_actions_ids])
         non_spatial_features = np.expand_dims(non_spatial_features, axis=0)
-
-        # feed_dict[self.nn.screen] = screen
-        # feed_dict[self.nn.non_spatial_features] = non_spatial_features
 
         feed_dict = {self.nn.minimap: minimap,
                      self.nn.screen: screen,
@@ -520,8 +532,8 @@ class A3CAgent:
 
         with open(SAVE_PATH + 'python_vars.pickle', 'rb') as f:
             python_vars = pickle.load(f)
-            A3CAgent.step_counter = python_vars[0]
-            A3CAgent.episode_counter = python_vars[1]
+            A3CAgent.STEP_COUNTER = python_vars[0]
+            A3CAgent.EPISODE_COUNTER = python_vars[1]
             screen_x = python_vars[2]
             screen_y = python_vars[3]
 
