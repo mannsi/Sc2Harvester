@@ -18,8 +18,6 @@ import constants
 
 A3C_SCREEN_SIZE_X = 32
 A3C_SCREEN_SIZE_Y = 32
-A3C_MINIMAP_SIZE_X = A3C_SCREEN_SIZE_X
-A3C_MINIMAP_SIZE_Y = A3C_SCREEN_SIZE_Y
 
 TRAINING = True
 DISCOUNT_FACTOR = 0.99
@@ -43,39 +41,27 @@ class NeuralNetwork:
     """Neural Network for the agent.
 
     This class builds the neural network part of the TensorFlow graph. It consists of two convolutional neural networks
-    for screen and minimap as well as a fully connected neural network to connect the spatial inputs with the non-spatial
+    for screen as well as a fully connected neural network to connect the spatial inputs with the non-spatial
     features and another convoluted neural network that gives the position of the spatial actions, as well as one more
     fully connected neural network for selecting the non-spatial action and another fully connected neural network that
     gives the value of a given state.
 
     Based on https://github.com/xhujoy/pysc2-agents
     """
-    def __init__(self, num_minimap_features, num_screen_features, num_extra_features, num_actions):
+    def __init__(self, num_screen_features, num_extra_features, num_actions):
         """Builds the neural network."""
         self.screen = tf.placeholder(shape=(None, num_screen_features, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y), dtype=np.float32, name='screen')
         self.non_spatial_features = tf.placeholder(shape=(None, num_extra_features), dtype=np.float32, name='non_spatial_features')
 
-        final_conv_layers = []
-        self.minimap = tf.placeholder(shape=(None, num_minimap_features, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y),
-                                      dtype=np.float32, name='minimap')
-
-        if num_minimap_features > 0:
-            minimap_conv1 = layers.conv2d(tf.transpose(self.minimap, [0, 2, 3, 1]), num_outputs=16, kernel_size=5, stride=1,scope='minimap_conv1')
-            minimap_conv2 = layers.conv2d(minimap_conv1, num_outputs=32, kernel_size=3, stride=1, scope='minimap_conv2')
-            final_conv_layers.append(minimap_conv2)
-
         screen_conv1 = layers.conv2d(tf.transpose(self.screen, [0, 2, 3, 1]), num_outputs=16, kernel_size=5, stride=1,scope='screen_conv1')
         screen_conv2 = layers.conv2d(screen_conv1, num_outputs=32, kernel_size=3, stride=1, scope='screen_conv2')
-        final_conv_layers.append(screen_conv2)
 
         non_spatial_features = layers.fully_connected(layers.flatten(self.non_spatial_features), num_outputs=256, activation_fn=tf.tanh, scope='non_spatial_features')
 
-        features_convoluted = tf.concat(final_conv_layers, axis=3)
+        features_convoluted = tf.concat([screen_conv2], axis=3)
         spatial_action = layers.conv2d(features_convoluted, num_outputs=1, kernel_size=1, stride=1, activation_fn=None, scope='spatial_action')
 
-        flattened_final_conv_layers = [layers.flatten(conv_layer) for conv_layer in final_conv_layers]
-
-        full_features = tf.concat(flattened_final_conv_layers + [non_spatial_features], axis=1)
+        full_features = tf.concat([layers.flatten(screen_conv2), non_spatial_features], axis=1)
         full_features = layers.fully_connected(full_features, num_outputs=256, activation_fn=tf.nn.relu, scope='full_features')
 
         self.spatial_action = tf.nn.softmax(layers.flatten(spatial_action))
@@ -126,7 +112,7 @@ class A3CAgent:
 
         self.executable_actions_ids = [
             actions.FUNCTIONS.no_op.id,
-            # actions.FUNCTIONS.move_camera.id,
+            actions.FUNCTIONS.Train_SCV_quick.id,
             actions.FUNCTIONS.select_point.id,
             actions.FUNCTIONS.select_idle_worker.id,
             actions.FUNCTIONS.Build_CommandCenter_screen.id,
@@ -137,27 +123,19 @@ class A3CAgent:
             actions.FUNCTIONS.Morph_SupplyDepot_Lower_quick.id,
             actions.FUNCTIONS.Morph_SupplyDepot_Raise_quick.id,
             actions.FUNCTIONS.Move_screen.id,
-            # actions.FUNCTIONS.Move_minimap.id,
             actions.FUNCTIONS.Rally_Workers_screen.id,
-            # actions.FUNCTIONS.Rally_Workers_minimap.id,
         ]
 
-        self.minimap_feature_indexes = [
-            # features.MINIMAP_FEATURES.visibility_map.index,
-            # features.MINIMAP_FEATURES.camera.index,
-        ]
-
-        self.screen_features_indexes = [
-            # features.SCREEN_FEATURES.player_relative.index,
-            features.SCREEN_FEATURES.unit_type.index,  # This has different values for everything in the minigame
+        # Second number is the scaling factor
+        self.screen_features_layers = [
+            (features.SCREEN_FEATURES.unit_type.index, 342),  # This has different values for everything in the minigame
+            (features.SCREEN_FEATURES.selected.index, 2)
         ]
 
         self.player_feature_indexes = [
             constants.Player_minerals,
-            # constants.Player_vespene,
             constants.Player_food_used,
             constants.Player_food_cap,
-            # constants.Player_food_workers,
             constants.Player_idle_worker_count,
         ]
 
@@ -168,15 +146,14 @@ class A3CAgent:
         self.summary_writer = summary_writer
 
         num_actions = len(self.executable_actions_ids)
-        num_screen_features = len(self.screen_features_indexes)
-        num_minimap_features = len(self.minimap_feature_indexes)
+        num_screen_features = len(self.screen_features_layers)
         num_non_spatial_features = len(self.player_feature_indexes) + num_actions  # We append available actions
 
         with tf.variable_scope(name):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
 
-            self.nn = NeuralNetwork(num_minimap_features, num_screen_features, num_non_spatial_features, num_actions)
+            self.nn = NeuralNetwork(num_screen_features, num_non_spatial_features, num_actions)
 
             self.has_spatial_action = tf.placeholder(tf.float32, [None, ], name='has_spatial_action')
             self.valid_non_spatial_actions = tf.placeholder(tf.float32, [None, num_actions], name='valid_non_spatial_actions')
@@ -258,7 +235,7 @@ class A3CAgent:
             self.replay_actions = []
 
             if SHOW_PROGRESS:
-                print('Episode {0:d} finished, took: {1:4.3f} seconds'.format(global_episode, time.time() - self.episode_start))
+                print(f'Episode {global_episode} finished, took: {time.time()- self.episode_start:4.3f}. Rew:{reward} seconds')
             self.episode_start = time.time()
 
             if global_episode % CHECKPOINT == 0:
@@ -321,8 +298,7 @@ class A3CAgent:
         collected_minerals = obs.observation['score_cumulative'][7]
         collected_vespene = obs.observation['score_cumulative'][8]
 
-        self.replay_states.append((nn_input[self.nn.minimap],
-                                   nn_input[self.nn.screen],
+        self.replay_states.append((nn_input[self.nn.screen],
                                    nn_input[self.nn.non_spatial_features],
                                    obs.reward,
                                    collected_minerals,
@@ -333,7 +309,7 @@ class A3CAgent:
         arguments = []
         for arg in actions.FUNCTIONS[action_id].args:
             # if the action needs a target, note that select_rect is not supported yet, so only those two are checked
-            if arg.name in ('screen', 'minimap'):
+            if arg.name in ('screen'):
                 arguments.append(action_target)
             else:
                 arguments.append([0]) # only executing direct actions, no queuing
@@ -367,9 +343,8 @@ class A3CAgent:
             R = 0
         else:
             # else we bootstrap from last step using the value given by the NN
-            minimap_states, screen_states, non_spatial_feature_states = self.replay_states[-1][:2]
-            feed_dict = {self.nn.minimap: minimap_states,
-                         self.nn.screen: screen_states,
+            screen_states, non_spatial_feature_states = self.replay_states[-1][:2]
+            feed_dict = {self.nn.screen: screen_states,
                          self.nn.non_spatial_features: non_spatial_feature_states}
             R = self.tf_session.run(self.nn.value, feed_dict=feed_dict)[0]
 
@@ -387,14 +362,11 @@ class A3CAgent:
         self.replay_states.reverse()
         self.replay_actions.reverse()
 
-        minimap_states = []
         screen_states = []
         non_spatial_feature_states = []
 
-
         for i in range(len(self.replay_states)):
-            mm, scr, info, reward = self.replay_states[i][:4]
-            minimap_states.append(mm)
+            scr, info, reward = self.replay_states[i][:3]
             screen_states.append(scr)
             non_spatial_feature_states.append(info)  # These are the info vectors
 
@@ -413,7 +385,7 @@ class A3CAgent:
 
             args = actions.FUNCTIONS[action_id].args
             for arg in args:
-                if arg.name in ('screen', 'minimap'):
+                if arg.name in ('screen'):
                     has_spatial_action[i] = 1
                     index = action_target[1] * A3C_SCREEN_SIZE_Y + action_target[0]
                     spatial_action_selected[i, index] = 1
@@ -421,14 +393,12 @@ class A3CAgent:
         total_rewards = undiscounted_rewards.sum()
 
         # MANNSI: Magically reshapes these lists of np arrays into proper np arrays. Also removes one extra dim in the way
-        minimap_states = np.array(minimap_states).squeeze(axis=1)
         screen_states = np.array(screen_states).squeeze(axis=1)
         non_spatial_feature_states = np.array(non_spatial_feature_states).squeeze(axis=1)
 
         # Shuffle all inputs before splitting them into batches
         # Shuffle the arrays
-        # p = np.random.permutation(len(minimap_states))
-        # minimap_states = minimap_states[p]
+        # p = np.random.permutation(len(screen_states))
         # screen_states = screen_states[p]
         # non_spatial_feature_states = non_spatial_feature_states[p]
         # cumulated_rewards = cumulated_rewards[p]
@@ -439,7 +409,6 @@ class A3CAgent:
 
         # split the input into batches, to not consume all the GPU memory
         # MANNSI: These stop being proper np arrays and become lists
-        minimap_states = np.array_split(minimap_states, NUM_BATCHES)
         screen_states = np.array_split(screen_states, NUM_BATCHES)
         non_spatial_feature_states = np.array_split(non_spatial_feature_states, NUM_BATCHES)
         cumulated_rewards = np.array_split(cumulated_rewards, NUM_BATCHES)
@@ -453,8 +422,7 @@ class A3CAgent:
         losses = np.array([], dtype=np.float32).reshape(0, 2)
 
         for i in range(NUM_BATCHES):
-            feed_dict = {self.nn.minimap: minimap_states[i],
-                         self.nn.screen: screen_states[i],
+            feed_dict = {self.nn.screen: screen_states[i],
                          self.nn.non_spatial_features: non_spatial_feature_states[i],
                          self.R: cumulated_rewards[i],
                          self.has_spatial_action: has_spatial_action[i],
@@ -483,12 +451,14 @@ class A3CAgent:
         :param observation: all current observations from the environment
         :return: a dictionary that can be fed into TensorFlow
         """
-        minimap = np.array(observation['minimap'], dtype=np.float32)
-        minimap = minimap[self.minimap_feature_indexes, :, :]
-        minimap = np.expand_dims(minimap, axis=0)  # MANNSI: Adds an extra first dimension. NN expects inputs like that
         screen = np.array(observation['screen'], dtype=np.float32)
-        screen = screen[self.screen_features_indexes, :, :]
-        screen = np.expand_dims(screen, axis=0)
+
+        for i, scale in self.screen_features_layers:
+            screen[i, :, :] = screen[i, :, :] / scale
+
+        inds = [x[0] for x in self.screen_features_layers]
+        screen = screen[inds, :, :]
+        screen = np.expand_dims(screen, axis=0) # MANNSI: Adds an extra first dimension. NN expects inputs like that
 
         non_spatial_features = np.array([
             observation['player'][self.player_feature_indexes],
@@ -497,8 +467,7 @@ class A3CAgent:
         non_spatial_features = np.append(non_spatial_features, [1 if i in observation['available_actions'] else 0 for i in self.executable_actions_ids])
         non_spatial_features = np.expand_dims(non_spatial_features, axis=0)
 
-        feed_dict = {self.nn.minimap: minimap,
-                     self.nn.screen: screen,
+        feed_dict = {self.nn.screen: screen,
                      self.nn.non_spatial_features: non_spatial_features}
         return feed_dict
 

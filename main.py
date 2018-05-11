@@ -8,7 +8,7 @@ from pysc2.env import run_loop
 from pysc2.env import sc2_env
 
 from a3c_agent import A3CAgent
-from a3c_agent import A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, PARALLEL_THREADS, SAVE_PATH,\
+from a3c_agent import A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, PARALLEL_THREADS, SAVE_PATH,\
     LOG_PATH, TRAINING
 
 
@@ -82,7 +82,7 @@ def start_a3c_agent():
         session.run(tf.global_variables_initializer())  # This used to be in the agent initialize method.
         threads = []
         for agent in agents:
-            thread_args = (agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_MINIMAP_SIZE_X, A3C_MINIMAP_SIZE_Y, False)
+            thread_args = (agent, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, A3C_SCREEN_SIZE_X, A3C_SCREEN_SIZE_Y, False)
             t = threading.Thread(target=run_thread, args=thread_args)
             threads.append(t)
             t.start()
