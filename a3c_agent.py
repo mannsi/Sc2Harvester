@@ -28,7 +28,7 @@ LEARNING_RATE = 10e-3
 EPSILON = 0.05
 
 NUM_BATCHES = 20
-PARALLEL_THREADS = 16
+PARALLEL_THREADS = 1
 MAX_STEPS_TOTAL = 10 * 10**6
 # MAX_STEPS_TOTAL = 100000
 CHECKPOINT = 500
@@ -317,10 +317,15 @@ class A3CAgent:
                 action_target = (np.random.randint(0, A3C_SCREEN_SIZE_Y - 1), np.random.randint(0, A3C_SCREEN_SIZE_X - 1))
                 random_position = True
 
+        collected_minerals = obs.observation['score_cumulative'][7]
+        collected_vespene = obs.observation['score_cumulative'][8]
+
         self.replay_states.append((nn_input[self.nn.minimap],
                                    nn_input[self.nn.screen],
                                    nn_input[self.nn.non_spatial_features],
                                    obs.reward,
+                                   collected_minerals,
+                                   collected_vespene,
                                    obs.last()))
         self.replay_actions.append((action_id, action_target, list(valid_actions), random_action, random_position))
 
@@ -368,7 +373,9 @@ class A3CAgent:
             R = self.tf_session.run(self.nn.value, feed_dict=feed_dict)[0]
 
         cumulated_rewards = np.zeros(shape=len(self.replay_states,), dtype=np.float32)
+        undiscounted_rewards = np.zeros(shape=len(self.replay_states,), dtype=np.float32)
         cumulated_rewards[0] = R
+        undiscounted_rewards[0] = R
 
         # Initialize np arrays for values. These arrays are filled using replay buffer
         has_spatial_action = np.zeros(shape=(len(self.replay_states,)), dtype=np.float32)
@@ -383,6 +390,7 @@ class A3CAgent:
         screen_states = []
         non_spatial_feature_states = []
 
+
         for i in range(len(self.replay_states)):
             mm, scr, info, reward = self.replay_states[i][:4]
             minimap_states.append(mm)
@@ -391,6 +399,7 @@ class A3CAgent:
 
             if i > 0:
                 cumulated_rewards[i] = reward + self.discount_factor * cumulated_rewards[i-1]
+                undiscounted_rewards[i] = reward
 
             action_id, action_target, valid_actions = self.replay_actions[i][:3]
             valid_actions_indices = [0] * len(self.executable_actions_ids)
@@ -408,7 +417,7 @@ class A3CAgent:
                     index = action_target[1] * A3C_SCREEN_SIZE_Y + action_target[0]
                     spatial_action_selected[i, index] = 1
 
-        final_reward = cumulated_rewards[-1]
+        total_rewards = undiscounted_rewards.sum()
 
         # MANNSI: Magically reshapes these lists of np arrays into proper np arrays. Also removes one extra dim in the way
         minimap_states = np.array(minimap_states).squeeze(axis=1)
@@ -417,15 +426,15 @@ class A3CAgent:
 
         # Shuffle all inputs before splitting them into batches
         # Shuffle the arrays
-        p = np.random.permutation(len(minimap_states))
-        minimap_states = minimap_states[p]
-        screen_states = screen_states[p]
-        non_spatial_feature_states = non_spatial_feature_states[p]
-        cumulated_rewards = cumulated_rewards[p]
-        has_spatial_action = has_spatial_action[p]
-        spatial_action_selected = spatial_action_selected[p]
-        valid_non_spatial_action = valid_non_spatial_action[p]
-        non_spatial_action_selected = non_spatial_action_selected[p]
+        # p = np.random.permutation(len(minimap_states))
+        # minimap_states = minimap_states[p]
+        # screen_states = screen_states[p]
+        # non_spatial_feature_states = non_spatial_feature_states[p]
+        # cumulated_rewards = cumulated_rewards[p]
+        # has_spatial_action = has_spatial_action[p]
+        # spatial_action_selected = spatial_action_selected[p]
+        # valid_non_spatial_action = valid_non_spatial_action[p]
+        # non_spatial_action_selected = non_spatial_action_selected[p]
 
         # split the input into batches, to not consume all the GPU memory
         # MANNSI: These stop being proper np arrays and become lists
@@ -462,7 +471,7 @@ class A3CAgent:
         self.replay_actions.reverse()
 
         avg_losses = losses.mean(axis=0)
-        return final_reward, avg_losses[0], avg_losses[1]
+        return total_rewards, avg_losses[0], avg_losses[1]
 
     def create_feed_dict(self, observation):
         """Creates a feed dictionary for TensorFlow.
@@ -573,8 +582,8 @@ class A3CAgent:
         else:
             tree = A3CAgent.action_logs[self.agent_id]
 
-        total_collected_minerals = int(self.replay_states[-1][2].flatten()[8])
-        total_collected_gas = int(self.replay_states[-1][2].flatten()[9])
+        total_collected_minerals = int(self.replay_states[-1][4])
+        total_collected_gas = int(self.replay_states[-1][5])
 
         minerals_per_episode = [(self.episodes, total_collected_minerals)]
         gas_per_episode = [(self.episodes , total_collected_gas)]
@@ -612,8 +621,8 @@ class A3CAgent:
                 performed_action.attrib['random_action'] = str(action[3])
                 performed_action.attrib['random_position'] = str(action[4])
 
-                collected_minerals = self.replay_states[i][2].flatten()[8]
-                collected_gas = self.replay_states[i][2].flatten()[9]
+                collected_minerals = self.replay_states[i][4]
+                collected_gas = self.replay_states[i][5]
 
                 performed_action.attrib['collected_minerals'] = str(int(collected_minerals))
                 performed_action.attrib['collected_gas'] = str(int(collected_gas))
