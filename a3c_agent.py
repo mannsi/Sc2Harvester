@@ -125,7 +125,8 @@ class A3CAgent:
         self.discount_factor = DISCOUNT_FACTOR
 
         self.executable_actions_ids = [
-            actions.FUNCTIONS.move_camera.id,
+            actions.FUNCTIONS.no_op.id,
+            # actions.FUNCTIONS.move_camera.id,
             actions.FUNCTIONS.select_point.id,
             actions.FUNCTIONS.select_idle_worker.id,
             actions.FUNCTIONS.Build_CommandCenter_screen.id,
